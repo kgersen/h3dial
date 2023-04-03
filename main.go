@@ -4,23 +4,39 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptrace"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
+	"github.com/quic-go/quic-go/logging"
 )
 
 var url = "https://cloudflare-quic.com/"
 
+type tracer struct {
+	logging.NullTracer
+}
+
+func (t tracer) TracerForConnection(context.Context, logging.Perspective, logging.ConnectionID) logging.ConnectionTracer {
+	return ConnectionTracer{}
+}
+
+type ConnectionTracer struct {
+	logging.NullConnectionTracer
+}
+
+func (n ConnectionTracer) StartedConnection(local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
+	fmt.Println("connected to", remote)
+}
+
 func main() {
 	// quic-go
 	fmt.Println("QUIC-GO:")
-	// is there a way to get the server real IP with quic-go ?
-	// for now use logging with this env variable.
-	// call this program with:
-	//    QUIC_GO_LOG_LEVEL="INFO" go run main.go
-	// this will display the server IP.
-	client := http.Client{Transport: &http3.RoundTripper{}}
+	tr := tracer{}
+	client := http.Client{Transport: &http3.RoundTripper{
+		QuicConfig: &quic.Config{Tracer: tr}}}
 	request, err := http.NewRequestWithContext(context.Background(), "GET", url, http.NoBody)
 	if err != nil {
 		log.Fatal(err)
