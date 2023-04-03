@@ -13,10 +13,11 @@ import (
 var url = "https://cloudflare-quic.com/"
 
 func main() {
-	// quic-go -  call this program with
+	// quic-go
 	fmt.Println("QUIC-GO:")
 	// is there a way to get the server real IP with quic-go ?
-	// for now use logging with this env variable
+	// for now use logging with this env variable.
+	// call this program with:
 	//    QUIC_GO_LOG_LEVEL="INFO" go run main.go
 	// this will display the server IP.
 	client := http.Client{Transport: &http3.RoundTripper{}}
