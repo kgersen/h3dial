@@ -36,6 +36,7 @@ func main() {
 
 	// net/http
 	fmt.Println("net/http:")
+	// the httptrace package allows use to catch the connection and display the server IP
 	trace := &httptrace.ClientTrace{
 		GotConn: func(connInfo httptrace.GotConnInfo) {
 			if connInfo.Conn != nil {
