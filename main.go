@@ -28,7 +28,7 @@ type ConnectionTracer struct {
 }
 
 func (n ConnectionTracer) StartedConnection(local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
-	fmt.Println("connected to", remote)
+	fmt.Println("  connected to", remote)
 }
 
 func main() {
