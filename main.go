@@ -73,9 +73,6 @@ func main() {
 	daeTransport := &http3.RoundTripper{
 		QuicConfig: &quic.Config{Tracer: tr},
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
-			// quic.DialAddrEarlyContext will prefer IPv4
-			// if we do the resolution of addr here we also need to pass addr in tls.Cfg.ServerName for sni to work
-			// net.Dial doesn't expose its dns resolution so either we use it and close
 			udpAddr, err := net.Dial("udp", addr)
 			if err != nil {
 				return nil, err
