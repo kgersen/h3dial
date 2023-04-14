@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -74,5 +75,31 @@ func main() {
 	}
 	fmt.Println("  got status: ", resp.Status)
 	fmt.Println("  proto: ", resp.Proto)
-	client = *http.DefaultClient
+
+	// with quic.DialAddrEarlyContext
+	fmt.Println("quic.DialAddrEarlyContext:")
+
+	daeTransport := &http3.RoundTripper{
+		DisableCompression: true,
+		QuicConfig:         &quic.Config{Tracer: tr},
+		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+			//fmt.Println("HTTP3 dialing to:", addr)
+			return quic.DialAddrEarlyContext(ctx, addr, tlsCfg, cfg)
+		},
+	}
+	client = http.Client{Transport: daeTransport}
+	request, err = http.NewRequestWithContext(context.Background(), "GET", url, http.NoBody)
+	if err != nil {
+		log.Fatal(err)
+	}
+	resp, err = client.Do(request)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if resp == nil {
+		log.Fatal("nil response")
+	}
+	fmt.Println("  got status: ", resp.Status)
+	fmt.Println("  proto: ", resp.Proto)
+
 }
