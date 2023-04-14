@@ -77,14 +77,29 @@ func main() {
 	fmt.Println("  proto: ", resp.Proto)
 
 	// with quic.DialAddrEarlyContext
-	fmt.Println("quic.DialAddrEarlyContext:")
+	fmt.Println("quic.DialAddrEarlyContext:", url)
 
 	daeTransport := &http3.RoundTripper{
-		DisableCompression: true,
-		QuicConfig:         &quic.Config{Tracer: tr},
+		QuicConfig: &quic.Config{Tracer: tr},
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
-			//fmt.Println("HTTP3 dialing to:", addr)
-			return quic.DialAddrEarlyContext(ctx, addr, tlsCfg, cfg)
+			// quic.DialAddrEarlyContext will prefer IPv4
+			// if we do the resolution of addr here we also need to pass addr in tls.Cfg.ServerName for sni to work
+			udpAddr, err := net.Dial("udp", addr)
+			if err != nil {
+				return nil, err
+			}
+			// fix sni for quic
+			if tlsCfg != nil {
+				if tlsCfg.ServerName == "" {
+					sni, _, err := net.SplitHostPort(addr)
+					if err != nil {
+						// It's ok if net.SplitHostPort returns an error - it could be a hostname/IP address without a port.
+						sni = addr
+					}
+					tlsCfg.ServerName = sni
+				}
+			}
+			return quic.DialAddrEarlyContext(ctx, udpAddr.RemoteAddr().String(), tlsCfg, cfg)
 		},
 	}
 	client = http.Client{Transport: daeTransport}
@@ -101,5 +116,4 @@ func main() {
 	}
 	fmt.Println("  got status: ", resp.Status)
 	fmt.Println("  proto: ", resp.Proto)
-
 }
