@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"os"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -33,24 +34,16 @@ func (n ConnectionTracer) StartedConnection(local, remote net.Addr, srcConnID, d
 }
 
 func main() {
-	// quic-go
+	url := url
+	if len(os.Args) > 1 {
+		url = os.Args[1]
+	}
+	// quic-go - basic http3.RoundTripper
 	fmt.Println("QUIC-GO:")
 	tr := tracer{}
 	client := http.Client{Transport: &http3.RoundTripper{
 		QuicConfig: &quic.Config{Tracer: tr}}}
-	request, err := http.NewRequestWithContext(context.Background(), "GET", url, http.NoBody)
-	if err != nil {
-		log.Fatal(err)
-	}
-	resp, err := client.Do(request)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if resp == nil {
-		log.Fatal("nil response")
-	}
-	fmt.Println("  got status: ", resp.Status)
-	fmt.Println("  proto: ", resp.Proto)
+	dial(context.Background(), &client, url)
 
 	// net/http
 	fmt.Println("net/http:")
@@ -62,57 +55,60 @@ func main() {
 			}
 		},
 	}
-	request, err = http.NewRequestWithContext(httptrace.WithClientTrace(context.Background(), trace), "GET", url, http.NoBody)
-	if err != nil {
-		log.Fatal(err)
-	}
-	resp, err = http.DefaultClient.Do(request)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if resp == nil {
-		log.Fatal("nil response")
-	}
-	fmt.Println("  got status: ", resp.Status)
-	fmt.Println("  proto: ", resp.Proto)
+	ctx := httptrace.WithClientTrace(context.Background(), trace)
+	dial(ctx, http.DefaultClient, url)
 
-	// with quic.DialAddrEarlyContext
-	fmt.Println("quic.DialAddrEarlyContext:", url)
+	// quic-go - basic http3.RoundTripper with custom Dial
+	fmt.Println("QUIC-GO custom Dial:")
+
+	// with use http3.RoundTripper but it doesnt expose its udpConn member field so we must use our own
+	var udpConn *net.UDPConn
+	defer func() {
+		if udpConn != nil {
+			fmt.Println("closing local udp conn")
+			udpConn.Close()
+		}
+	}()
 
 	daeTransport := &http3.RoundTripper{
 		QuicConfig: &quic.Config{Tracer: tr},
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 			// quic.DialAddrEarlyContext will prefer IPv4
 			// if we do the resolution of addr here we also need to pass addr in tls.Cfg.ServerName for sni to work
+			// net.Dial doesn't expose its dns resolution so either we use it and close
 			udpAddr, err := net.Dial("udp", addr)
 			if err != nil {
 				return nil, err
 			}
-			// fix sni for quic
-			if tlsCfg != nil {
-				if tlsCfg.ServerName == "" {
-					sni, _, err := net.SplitHostPort(addr)
-					if err != nil {
-						// It's ok if net.SplitHostPort returns an error - it could be a hostname/IP address without a port.
-						sni = addr
-					}
-					tlsCfg.ServerName = sni
+			if udpConn == nil {
+				// check for Zone on IPv6 link-local for instance, some OS might the Zone too
+				udpConn, err = net.ListenUDP("udp", nil)
+				if err != nil {
+					return nil, err
 				}
 			}
-			return quic.DialAddrEarlyContext(ctx, udpAddr.RemoteAddr().String(), tlsCfg, cfg)
+			return quic.DialEarlyContext(ctx, udpConn, udpAddr.RemoteAddr(), addr, tlsCfg, cfg)
 		},
 	}
 	client = http.Client{Transport: daeTransport}
-	request, err = http.NewRequestWithContext(context.Background(), "GET", url, http.NoBody)
+	dial(context.Background(), &client, url)
+}
+
+func dial(ctx context.Context, client *http.Client, url string) {
+	fmt.Println("  dialing", url)
+	request, err := http.NewRequestWithContext(ctx, "GET", url, http.NoBody)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
-	resp, err = client.Do(request)
+	resp, err := client.Do(request)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	if resp == nil {
-		log.Fatal("nil response")
+		log.Println("nil response")
+		return
 	}
 	fmt.Println("  got status: ", resp.Status)
 	fmt.Println("  proto: ", resp.Proto)
