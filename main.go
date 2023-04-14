@@ -78,7 +78,7 @@ func main() {
 				return nil, err
 			}
 			if udpConn == nil {
-				// check for Zone on IPv6 link-local for instance, some OS might the Zone too
+				// check for Zone on IPv6 link-local for instance, some OS might need the Zone too
 				udpConn, err = net.ListenUDP("udp", nil)
 				if err != nil {
 					return nil, err
