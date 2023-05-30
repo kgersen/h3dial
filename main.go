@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/url"
 	"os"
 
 	"github.com/quic-go/quic-go"
@@ -15,7 +16,7 @@ import (
 	"github.com/quic-go/quic-go/logging"
 )
 
-var url = "https://cloudflare-quic.com/"
+var sUrl = "https://cloudflare-quic.com/"
 
 type tracer struct {
 	logging.NullTracer
@@ -34,16 +35,22 @@ func (n ConnectionTracer) StartedConnection(local, remote net.Addr, srcConnID, d
 }
 
 func main() {
-	url := url
+
 	if len(os.Args) > 1 {
-		url = os.Args[1]
+		sUrl = os.Args[1]
+	}
+	u, err := url.Parse(sUrl)
+	if err != nil {
+		panic(err)
 	}
 	// quic-go - basic http3.RoundTripper
 	fmt.Println("QUIC-GO:")
 	tr := tracer{}
+
 	client := http.Client{Transport: &http3.RoundTripper{
-		QuicConfig: &quic.Config{Tracer: tr}}}
-	dial(context.Background(), &client, url)
+		TLSClientConfig: &tls.Config{ServerName: u.Hostname()},
+		QuicConfig:      &quic.Config{Tracer: tr.TracerForConnection}}}
+	dial(context.Background(), &client, sUrl)
 
 	// net/http
 	fmt.Println("net/http:")
@@ -56,7 +63,7 @@ func main() {
 		},
 	}
 	ctx := httptrace.WithClientTrace(context.Background(), trace)
-	dial(ctx, http.DefaultClient, url)
+	dial(ctx, http.DefaultClient, sUrl)
 
 	// quic-go - basic http3.RoundTripper with custom Dial
 	fmt.Println("QUIC-GO custom Dial:")
@@ -71,7 +78,8 @@ func main() {
 	}()
 
 	daeTransport := &http3.RoundTripper{
-		QuicConfig: &quic.Config{Tracer: tr},
+		QuicConfig:      &quic.Config{Tracer: tr.TracerForConnection},
+		TLSClientConfig: &tls.Config{ServerName: u.Hostname()},
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 			udpAddr, err := net.Dial("udp", addr)
 			if err != nil {
@@ -84,11 +92,11 @@ func main() {
 					return nil, err
 				}
 			}
-			return quic.DialEarlyContext(ctx, udpConn, udpAddr.RemoteAddr(), addr, tlsCfg, cfg)
+			return quic.DialEarly(ctx, udpConn, udpAddr.RemoteAddr(), tlsCfg, cfg)
 		},
 	}
 	client = http.Client{Transport: daeTransport}
-	dial(context.Background(), &client, url)
+	dial(context.Background(), &client, sUrl)
 }
 
 func dial(ctx context.Context, client *http.Client, url string) {
