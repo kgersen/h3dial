@@ -18,20 +18,12 @@ import (
 
 var sUrl = "https://cloudflare-quic.com/"
 
-type tracer struct {
-	logging.NullTracer
-}
-
-func (t tracer) TracerForConnection(context.Context, logging.Perspective, logging.ConnectionID) logging.ConnectionTracer {
-	return ConnectionTracer{}
-}
-
-type ConnectionTracer struct {
-	logging.NullConnectionTracer
-}
-
-func (n ConnectionTracer) StartedConnection(local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
-	fmt.Println("  connected to", remote)
+func tracer(ctx context.Context, p logging.Perspective, ci quic.ConnectionID) *logging.ConnectionTracer {
+	return &logging.ConnectionTracer{
+		StartedConnection: func(local, remote net.Addr, srcConnID, destConnID logging.ConnectionID) {
+			fmt.Println("  connected to", remote)
+		},
+	}
 }
 
 func main() {
@@ -45,11 +37,12 @@ func main() {
 	}
 	// quic-go - basic http3.RoundTripper
 	fmt.Println("QUIC-GO:")
-	tr := tracer{}
 
-	client := http.Client{Transport: &http3.RoundTripper{
-		TLSClientConfig: &tls.Config{ServerName: u.Hostname()},
-		QuicConfig:      &quic.Config{Tracer: tr.TracerForConnection}}}
+	client := http.Client{
+		Transport: &http3.RoundTripper{
+			TLSClientConfig: &tls.Config{ServerName: u.Hostname()},
+			QuicConfig:      &quic.Config{Tracer: tracer}},
+	}
 	dial(context.Background(), &client, sUrl)
 
 	// net/http
@@ -78,7 +71,7 @@ func main() {
 	}()
 
 	daeTransport := &http3.RoundTripper{
-		QuicConfig:      &quic.Config{Tracer: tr.TracerForConnection},
+		QuicConfig:      &quic.Config{Tracer: tracer},
 		TLSClientConfig: &tls.Config{ServerName: u.Hostname()},
 		Dial: func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
 			udpAddr, err := net.Dial("udp", addr)
